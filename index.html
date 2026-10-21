@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Meteo</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Meteo">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0f2a3d">
+<style>
+:root{--bg:#e6eef3;--ink:#0f2a3d;--mute:#5b7384;--card:#f7fafc;--line:#c9d7e0;--warm:#e89b00;--cool:#2b7bb9}
+@media (prefers-color-scheme:dark){:root{--bg:#0b1a26;--ink:#e8f1f6;--mute:#8aa3b4;--card:#12283a;--line:#23435a;--warm:#f5b83a;--cool:#5aa9e0}}
+*{box-sizing:border-box}
+html{background:var(--bg)}
+body{margin:0;min-height:100vh;color:var(--ink);background:var(--bg);font:16px/1.4 -apple-system,"SF Pro Text",system-ui,sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+main{max-width:520px;margin:0 auto;padding:16px}
+form{display:flex;gap:8px}
+input{flex:1;min-width:0;font:inherit;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 14px}
+button{font:inherit;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 14px;cursor:pointer}
+:focus-visible{outline:2px solid var(--cool);outline-offset:2px}
+#now{padding:28px 4px 8px}
+#place{font-size:1.15rem;margin:0;color:var(--mute)}
+#temp{font-size:6.5rem;font-weight:200;line-height:1;letter-spacing:-.04em;margin:4px 0}
+#temp sup{font-size:2.5rem;font-weight:300;vertical-align:top;position:relative;top:.6rem}
+#desc{font-size:1.25rem;margin:0}
+#extra{color:var(--mute);margin:6px 0 0}
+section{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;margin-top:14px}
+h2{font-size:.95rem;font-weight:600;margin:0 0 10px;color:var(--mute)}
+#hours{display:flex;gap:18px;overflow-x:auto;padding-bottom:4px}
+.h{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:44px}
+.h small{color:var(--mute)}
+.h .ic{font-size:1.5rem}
+.rain{color:var(--cool);font-size:.75rem;min-height:1em}
+.d{display:grid;grid-template-columns:3.2rem 2rem 2.2rem 1fr 2.2rem;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--line)}
+.d:first-of-type{border-top:0}
+.d .mn{color:var(--mute);text-align:right}.d .mx{text-align:right}
+.bar{position:relative;height:6px;border-radius:3px;background:var(--line)}
+.bar i{position:absolute;top:0;bottom:0;border-radius:3px;background:linear-gradient(90deg,var(--cool),var(--warm))}
+#msg{color:var(--mute);padding:12px 4px}
+footer{color:var(--mute);font-size:.8rem;text-align:center;padding:18px 0}
+footer a{color:inherit}
+</style>
+</head>
+<body>
+<main>
+<form id="f"><input id="q" type="search" placeholder="Cerca una città" aria-label="Cerca una città" autocomplete="off"><button type="submit">Cerca</button><button type="button" id="loc" aria-label="Usa la mia posizione">📍</button></form>
+<div id="msg" role="status">Caricamento…</div>
+<div id="app" hidden>
+<div id="now"><p id="place"></p><div id="temp"></div><p id="desc"></p><p id="extra"></p></div>
+<section><h2>Prossime ore</h2><div id="hours"></div></section>
+<section><h2>Prossimi 7 giorni</h2><div id="days"></div></section>
+</div>
+<footer>Dati meteo da <a href="https://open-meteo.com/">Open-Meteo.com</a></footer>
+</main>
+<script>
+const WMO={0:["Sereno","☀️"],1:["Prevalentemente sereno","🌤️"],2:["Parzialmente nuvoloso","⛅"],3:["Coperto","☁️"],45:["Nebbia","🌫️"],48:["Nebbia con brina","🌫️"],51:["Pioviggine debole","🌦️"],53:["Pioviggine","🌦️"],55:["Pioviggine intensa","🌦️"],56:["Pioggia gelata","🌧️"],57:["Pioggia gelata","🌧️"],61:["Pioggia debole","🌧️"],63:["Pioggia","🌧️"],65:["Pioggia forte","🌧️"],66:["Pioggia gelata","🌧️"],67:["Pioggia gelata","🌧️"],71:["Neve debole","🌨️"],73:["Neve","🌨️"],75:["Neve forte","❄️"],77:["Granelli di neve","🌨️"],80:["Rovesci deboli","🌦️"],81:["Rovesci","🌧️"],82:["Rovesci violenti","⛈️"],85:["Rovesci di neve","🌨️"],86:["Rovesci di neve forti","❄️"],95:["Temporale","⛈️"],96:["Temporale con grandine","⛈️"],99:["Temporale con grandine","⛈️"]};
+const $=id=>document.getElementById(id);
+const w=c=>WMO[c]||["—","❔"];
+const msg=t=>{$("msg").textContent=t;$("msg").hidden=!t};
+
+async function load(lat,lon,name){
+  msg("Caricamento…");
+  try{
+    const u="https://api.open-meteo.com/v1/forecast?latitude="+lat+"&longitude="+lon+
+      "&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m"+
+      "&hourly=temperature_2m,weather_code,precipitation_probability"+
+      "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"+
+      "&timezone=auto&forecast_days=7";
+    const r=await fetch(u);if(!r.ok)throw new Error(r.status);
+    const d=await r.json();render(d,name);
+    localStorage.setItem("meteo-place",JSON.stringify({lat,lon,name}));
+    msg("");$("app").hidden=false;
+  }catch(e){msg("Impossibile ottenere i dati. Controlla la connessione e riprova.")}
+}
+
+function render(d,name){
+  const c=d.current,[t,ic]=w(c.weather_code);
+  $("place").textContent=name;
+  $("temp").innerHTML=Math.round(c.temperature_2m)+"<sup>°</sup>";
+  $("desc").textContent=ic+" "+t;
+  $("extra").textContent="Percepita "+Math.round(c.apparent_temperature)+"° · Umidità "+c.relative_humidity_2m+"% · Vento "+Math.round(c.wind_speed_10m)+" km/h";
+  const h=d.hourly,from=h.time.findIndex(x=>x>=c.time.slice(0,13)+":00");
+  $("hours").replaceChildren(...h.time.slice(from,from+24).map((x,i)=>{
+    const j=from+i,el=document.createElement("div");el.className="h";
+    const p=h.precipitation_probability[j];
+    el.innerHTML="<small>"+(i?x.slice(11,13):"Ora")+"</small><span class='ic'>"+w(h.weather_code[j])[1]+"</span><b>"+Math.round(h.temperature_2m[j])+"°</b><span class='rain'>"+(p>=20?p+"%":"")+"</span>";
+    return el;
+  }));
+  const D=d.daily,lo=Math.min(...D.temperature_2m_min),hi=Math.max(...D.temperature_2m_max),span=(hi-lo)||1;
+  $("days").replaceChildren(...D.time.map((x,i)=>{
+    const el=document.createElement("div");el.className="d";
+    const day=i?new Date(x+"T12:00").toLocaleDateString("it-IT",{weekday:"short"}):"Oggi";
+    const a=(D.temperature_2m_min[i]-lo)/span*100,b=(D.temperature_2m_max[i]-lo)/span*100;
+    const p=D.precipitation_probability_max[i];
+    el.innerHTML="<span>"+day+"</span><span>"+w(D.weather_code[i])[1]+"</span><span class='mn'>"+Math.round(D.temperature_2m_min[i])+"°</span><div class='bar' title='Pioggia "+p+"%'><i style='left:"+a+"%;right:"+(100-b)+"%'></i></div><span class='mx'>"+Math.round(D.temperature_2m_max[i])+"°</span>";
+    return el;
+  }));
+}
+
+$("f").addEventListener("submit",async e=>{
+  e.preventDefault();const q=$("q").value.trim();if(!q)return;
+  msg("Ricerca…");
+  try{
+    const r=await fetch("https://geocoding-api.open-meteo.com/v1/search?count=1&language=it&name="+encodeURIComponent(q));
+    const g=(await r.json()).results;
+    if(!g||!g.length){msg("Nessuna città trovata per «"+q+"».");return}
+    load(g[0].latitude,g[0].longitude,g[0].name+(g[0].admin1?", "+g[0].admin1:""));
+  }catch(e){msg("Ricerca non riuscita. Riprova.")}
+});
+
+function locate(){
+  if(!navigator.geolocation){msg("Geolocalizzazione non disponibile: cerca una città.");return}
+  msg("Cerco la posizione…");
+  navigator.geolocation.getCurrentPosition(
+    p=>load(p.coords.latitude,p.coords.longitude,"La tua posizione"),
+    ()=>msg("Posizione non disponibile. Consenti l’accesso nelle impostazioni o cerca una città."),
+    {timeout:10000,maximumAge:600000});
+}
+$("loc").addEventListener("click",locate);
+
+const saved=(()=>{try{return JSON.parse(localStorage.getItem("meteo-place"))}catch(e){return null}})();
+saved?load(saved.lat,saved.lon,saved.name):locate();
+if("serviceWorker"in navigator)navigator.serviceWorker.register("sw.js");
+</script>
+</body>
+</html>
